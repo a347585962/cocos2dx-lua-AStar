@@ -1,12 +1,16 @@
 --
--- Author: Your Name
+-- Author: AStar
 -- Date: 2017-02-28 19:34:42
 --
 
-AStar = {} or AStar
+local AStar = class("AStar", {})
 
 -- 初始化地图
-function AStar.newMap(mapNodeTagVector, obstacleNodeTagVector)
+function AStar:ctor()
+
+end
+
+function AStar:newMap(mapNodeTagVector, obstacleNodeTagVector)
 	
 	-- 开列表
 	self.mOpenQueue = {}
@@ -24,68 +28,98 @@ end
 
 -- 开始寻路
 -- 参数 开始tag 结束tag 
-function AStar.start(startTag, endTag)
+function AStar:start(startTag, endTag)
 	
 	self.mStartTag = startTag
 	self.mEndTag   = endTag
 
-	self.mOrder = 1  -- 节点放入队列的顺序，用于排序比较
+	-- 开列表
+	self.mOpenQueue = {}
+
+	-- 闭列表
+	self.mCloseQueue = {}
+
+	local stepList = {}
 
 	-- 容错
-	if startTag == endTag then
+	if self.mStartTag == self.mEndTag  then
 		return nil
 	end
 
 	-- 目标TAG不符合条件（障碍物）
-	if self:checkIsObstacle(endTag) then
+	if self:checkIsInQueue(self.mEndTag , self.mObstacleNodeTagVector) ~= -1 then
 		return nil
 	end
 
-	-- 将起始节点放入开队列
-	-- 每个节点的数据类型
-	local startNodeData = {
-		tag = startTag,
-		F   = 0 ,
-		G   = 0 , 
-		H   = 0 ,
-		order = 0,
-	}
+	-- 插入
+	self:insertOpenQueue(self:getNodeData(self.mStartTag))
 
-	table.insert(self.mOpenQueue, startNodeData)
-
-	while (table.nums(self.mOpenQueue) > 0)
+	while (#self.mOpenQueue > 0)
 	do
 		local currentNode = self.mOpenQueue[1]
 
+		-- 加入闭列表
+		table.insert(self.mCloseQueue, currentNode)
+
+		--将当前步骤从open列表里面移除
+        table.remove(self.mOpenQueue, 1)
+
+        -- 判断当前节点 为终点结束循环
+        --如果当前步骤已经是目标步骤,那么完成循环
+        if currentNode.tag == self.mEndTag then
+            while(currentNode)
+            do
+                table.insert(stepList, 1, currentNode.tag)
+                currentNode = currentNode.parent or nil
+            end
+            self.mOpenQueue = {}
+            self.mCloseQueue = {}
+            break
+        end
+
 		-- 得到第一个四周的方块，加入开列表
+		local tempArroundNode = self:getAroundNode(currentNode.tag)
+		for i,step in ipairs(tempArroundNode) do
+			-- print("tempArroundNode")
+			-- 判断是否在闭列表
+			local isInCloseQueue = self:checkIsInQueue(step, self.mCloseQueue)
 
+			-- 判断是否在开列表
+			local inOpenQueueIndex  = self:checkIsInQueue(step, self.mOpenQueue)
 
+			if isInCloseQueue == -1 then
+				
+				if inOpenQueueIndex == -1 then
+					
+					step.parent = currentNode
+					step.G = currentNode.G + 1
+                    step.F = step.G + step.H
+					--顺序添加到open列表
+                    self:insertOpenQueue(step)
 
+                else
+                	step = self.mOpenQueue[inOpenQueueIndex]
+                	if ((currentNode.G + 1) < step.G) then   --检查G值是否低于当前步骤
+                        step.setGScore(currentNode.G + 1)
+                        step.G = currentNode.G + 1
+                        step.F = step.G + step.H
+                        table.remove(self.mOpenQueue, inOpenQueueIndex)
+                        self:insertOpenQueue(step)      --值发生了变化,F值也会变, 为了列表有序，需要将此步骤移除，再重新按序插入
+                    end
 
+				end
 
-	end
+			end
 
-end
-
--- 判断是否为地图点
-function AStar:checkIsMap()
-	-- body
-end
-
--- 判断是否为障碍物
-function AStar:checkIsObstacle(tag)
-	
-	local isObstacle = false
-	for k,v in pairs(self.mObstacleNodeTagVector) do
-		
-		if v == tag then
-			isObstacle = true
-			break	
 		end
-
 	end
-	return isObstacle
 
+	if #stepList == 0 then
+        self.mOpenQueue = {}
+        self.mCloseQueue = {}
+    end
+
+	return stepList
 end
 
 -- 得到周围方块
@@ -99,12 +133,12 @@ function AStar:getAroundNode(tag)
 	local downTag  = (nodeH - 1) * 100 + nodeW
 	local leftTag  = nodeH * 100 + ( nodeW - 1 )
 	local topTag   = (nodeH + 1) * 100 + nodeW
-	local rightTag = nodeH * 100 + nodeW
+	local rightTag = nodeH * 100 + nodeW + 1
 
 	-- 下
 	local ret = {}
 	function getData(tempTag)
-		if self:checkIsMap(tempTag) and checkIsObstacle(tempTag) then
+		if self:checkIsInQueue(tempTag, self.mMapNodeTagVector) ~= -1  and self:checkIsInQueue(tempTag, self.mObstacleNodeTagVector) == -1 then
 			local temp = self:getNodeData(tempTag)
 			table.insert(ret, temp)
 		end
@@ -115,7 +149,6 @@ function AStar:getAroundNode(tag)
 	getData(rightTag)
 
 	return ret
-
 end
 
 -- 获取节点数据 数据格式如下
@@ -136,8 +169,6 @@ function AStar:getNodeData(tag)
 	local GValue = self:getLengh(tag, self.mStartTag)
 	local HValue = self:getLengh(tag, self.mEndTag )
 
-	self.mOrder = self.mOrder + 1
-
 	local ret = {
 		tag = tag,  
 		F   = HValue + GValue,   
@@ -149,7 +180,42 @@ function AStar:getNodeData(tag)
 	return ret
 end
 
+-- 插入有序开队列
+function AStar:insertOpenQueue(step)
+	local index = #self.mOpenQueue + 1
+    for i, v in ipairs(self.mOpenQueue) do
+        if step.F <= v.F then
+            index = i
+            break
+        end
+    end
+
+	table.insert(self.mOpenQueue, index, step)
+end
+
+-- 检查是否在列表中
+function AStar:checkIsInQueue(tag, list)
+	local find = -1
+    for i, v in ipairs(list) do
+    	if type(v) == "table" and v.tag then
+    		if v.tag == tag then
+	            find = i
+	            break
+        	end
+        else
+        	if v == tag then
+	            find = i
+	            break
+        	end
+    	end
+        
+    end
+    return find
+end
+
 -- 获取两个节点的距离
 function AStar:getLengh(currentTag, targetTAG)
 	return math.abs(currentTag % 100 - targetTAG % 100 ) + math.abs(math.floor(currentTag / 100) - math.floor(targetTAG / 100))
 end
+
+return AStar
