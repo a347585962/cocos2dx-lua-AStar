@@ -26,7 +26,7 @@ function MapLayer:ctor()
 	-- 不能连续点击
 	self.mIsTouch = true
 end
-
+--
 -- 创建格子地图 铺满屏幕
 function MapLayer:createMapBox()
 	local tagVector = {}
